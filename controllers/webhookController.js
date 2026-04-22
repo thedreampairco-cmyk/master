@@ -1,3 +1,5 @@
+const Groq = require('groq-sdk');
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const Business = require('../models/Business');
 const axios = require('axios');
 require('dotenv').config();
@@ -59,13 +61,51 @@ exports.handleIncomingMessage = async (req, res) => {
                     await business.save();
                     await sendWhatsAppMessage(senderNumber, "Finally, paste your UPI ID or payment link for customers.");
                     break;
-                case 4:
+                                case 4:
                     business.raw_data.payment_link = textMessage;
-                    // We stop here for today. Tomorrow, Groq synthesizes this data.
-                    business.onboarding_step = 5; 
-                    await business.save();
-                    await sendWhatsAppMessage(senderNumber, "Data collected. Nexa AI is generating your system prompt...");
+                    await sendWhatsAppMessage(senderNumber, "Data collected. Nexa AI is synthesizing your custom bot. Please wait 10 seconds...");
+                    
+                    try {
+                        // The Meta-Prompt
+                        const metaPrompt = `
+                        You are an elite AI Prompt Engineer. Create a strict system prompt for a WhatsApp customer service bot.
+                        Business Name: ${business.business_name}
+                        Menu/Services: ${business.raw_data.menu}
+                        Working Hours: ${business.raw_data.hours}
+                        Payment Link/UPI: ${textMessage}
+
+                        Rules for the generated prompt:
+                        1. The bot must be polite, highly concise (under 3 sentences), and act as the official receptionist.
+                        2. NEVER hallucinate prices or invent services.
+                        3. The primary goal is to answer questions using ONLY the provided menu data and push the user to finalize their order using the payment link.
+
+                        OUTPUT FORMAT: Output ONLY a valid JSON object with a single key "generated_system_prompt". No markdown, no conversational text.
+                        `;
+
+                        // Call Groq (Using Llama 3 for fast, smart JSON output)
+                        const chatCompletion = await groq.chat.completions.create({
+                            messages: [{ role: 'user', content: metaPrompt }],
+                            model: 'llama3-8b-8192',
+                            response_format: { type: "json_object" }
+                        });
+
+                        // Parse the JSON
+                        const groqResponse = JSON.parse(chatCompletion.choices[0].message.content);
+                        
+                        // Save the synthesized prompt and activate the business
+                        business.system_prompt = groqResponse.generated_system_prompt;
+                        business.status = 'active'; // The bot is now live!
+                        business.onboarding_step = 5; 
+                        await business.save();
+
+                        await sendWhatsAppMessage(senderNumber, "✅ Your bot is now LIVE! Anyone who messages this number will now be handled by Nexa AI.");
+
+                    } catch (groqError) {
+                        console.error("Groq Synthesis Failed:", groqError);
+                        await sendWhatsAppMessage(senderNumber, "❌ Error generating AI prompt. Please try again.");
+                    }
                     break;
+
             }
         } else if (business.status === 'active') {
             // Tomorrow's job: Route to Groq for customer chats
