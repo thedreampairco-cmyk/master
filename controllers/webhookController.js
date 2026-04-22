@@ -15,9 +15,12 @@ async function sendWhatsAppMessage(chatId, message) {
 exports.handleIncomingMessage = async (req, res) => {
     // Green API sends a lot of data; we only care about text messages for now
     const body = req.body;
+    console.log("🔥 WEBHOOK HIT! Payload received from:", JSON.stringify(body));
+
     if (!body.receiptId || !body.messageData || !body.messageData.textMessageData) {
         return res.status(200).send("Not a text message, ignoring.");
     }
+    
 
     const senderNumber = body.senderData.sender; // E.g., 919876543210@c.us
     const textMessage = body.messageData.textMessageData.textMessage;
